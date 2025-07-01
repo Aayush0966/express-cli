@@ -1,7 +1,7 @@
 {
   "name": "simple-cli-tool",
   "version": "1.0.0",
-  "description": "A simple CLI tool with welcome message",
+  "description": "A simple CLI tool with welcome message and Express generator",
   "main": "index.js",
   "bin": {
     "cli-tool": "./bin/cli.js"
@@ -10,10 +10,13 @@
     "start": "node bin/cli.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": ["cli", "tool", "welcome"],
+  "keywords": ["cli", "tool", "welcome", "express", "generator"],
   "author": "",
   "license": "MIT",
   "engines": {
     "node": ">=14.0.0"
+  },
+  "dependencies": {
+    "readline": "^1.3.0"
   }
 } 
