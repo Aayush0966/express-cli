@@ -2,11 +2,22 @@ const fs = require('fs');
 const path = require('path');
 const chalk = require('chalk');
 const ora = require('ora');
+const fse = require('fs-extra');
 
 class ExpressGenerator {
-  constructor(projectName) {
+  constructor(projectName, config = {}) {
     this.projectName = projectName;
     this.projectPath = path.join(process.cwd(), projectName);
+    this.config = {
+      language: 'javascript',
+      authentication: 'jwt',
+      database: 'mongodb',
+      cors: true,
+      validation: true,
+      testing: true,
+      docker: false,
+      ...config
+    };
   }
 
   async generate() {
@@ -16,6 +27,10 @@ class ExpressGenerator {
       this.createProjectStructure();
       this.createConfigFiles();
       this.createSourceFiles();
+      
+      if (this.config.docker) {
+        this.createDockerFiles();
+      }
       
       spinner.succeed(chalk.green('Express server generated successfully!'));
       return true;
@@ -38,6 +53,14 @@ class ExpressGenerator {
       'src/config'
     ];
 
+    if (this.config.testing) {
+      directories.push('tests', 'tests/unit', 'tests/integration');
+    }
+
+    if (this.config.language === 'typescript') {
+      directories.push('dist', 'src/types');
+    }
+
     directories.forEach(dir => {
       const dirPath = path.join(this.projectPath, dir);
       if (!fs.existsSync(dirPath)) {
@@ -51,66 +74,189 @@ class ExpressGenerator {
       'package.json': this.getPackageJsonContent(),
       '.env.example': this.getEnvExampleContent(),
       '.gitignore': this.getGitignoreContent(),
-      'README.md': this.getReadmeContent(),
-      'server.js': this.getServerContent()
+      'README.md': this.getReadmeContent()
     };
 
+    // Add language-specific files
+    if (this.config.language === 'typescript') {
+      files['tsconfig.json'] = this.getTsConfigContent();
+      files['src/types/index.ts'] = this.getTypesContent();
+    }
+
+    // Add server file
+    const serverExt = this.config.language === 'typescript' ? 'ts' : 'js';
+    files[`server.${serverExt}`] = this.getServerContent();
+
+    // Add Jest config if testing is enabled
+    if (this.config.testing) {
+      files['jest.config.js'] = this.getJestConfigContent();
+    }
+
     Object.entries(files).forEach(([filename, content]) => {
-      fs.writeFileSync(path.join(this.projectPath, filename), content);
+      fse.writeFileSync(path.join(this.projectPath, filename), content);
     });
   }
 
   createSourceFiles() {
+    const ext = this.config.language === 'typescript' ? 'ts' : 'js';
+    
     const sourceFiles = {
-      'src/app.js': this.getAppContent(),
-      'src/config/database.js': this.getDatabaseConfigContent(),
-      'src/config/environment.js': this.getEnvironmentConfigContent(),
-      'src/middleware/auth.js': this.getAuthMiddlewareContent(),
-      'src/middleware/errorHandler.js': this.getErrorHandlerContent(),
-      'src/controllers/userController.js': this.getUserControllerContent(),
-      'src/models/User.js': this.getUserModelContent(),
-      'src/routes/index.js': this.getIndexRoutesContent(),
-      'src/routes/userRoutes.js': this.getUserRoutesContent(),
-      'src/services/userService.js': this.getUserServiceContent(),
-      'src/utils/helpers.js': this.getHelpersContent(),
-      'src/utils/constants.js': this.getConstantsContent()
+      [`src/app.${ext}`]: this.getAppContent(),
+      [`src/config/environment.${ext}`]: this.getEnvironmentConfigContent()
     };
 
+    // Database configuration
+    if (this.config.database !== 'none') {
+      sourceFiles[`src/config/database.${ext}`] = this.getDatabaseConfigContent();
+    }
+
+    // Authentication middleware
+    if (this.config.authentication !== 'none') {
+      sourceFiles[`src/middleware/auth.${ext}`] = this.getAuthMiddlewareContent();
+    }
+
+    // Error handler
+    sourceFiles[`src/middleware/errorHandler.${ext}`] = this.getErrorHandlerContent();
+
+    // Routes
+    sourceFiles[`src/routes/index.${ext}`] = this.getIndexRoutesContent();
+    sourceFiles[`src/routes/userRoutes.${ext}`] = this.getUserRoutesContent();
+
+    // Controllers and services
+    sourceFiles[`src/controllers/userController.${ext}`] = this.getUserControllerContent();
+    sourceFiles[`src/services/userService.${ext}`] = this.getUserServiceContent();
+
+    // Models (based on database choice)
+    if (this.config.database !== 'none') {
+      sourceFiles[`src/models/User.${ext}`] = this.getUserModelContent();
+    }
+
+    // Utilities
+    sourceFiles[`src/utils/helpers.${ext}`] = this.getHelpersContent();
+    sourceFiles[`src/utils/constants.${ext}`] = this.getConstantsContent();
+
+    // Testing files
+    if (this.config.testing) {
+      sourceFiles[`tests/unit/user.test.${ext}`] = this.getUserTestContent();
+      sourceFiles[`tests/integration/api.test.${ext}`] = this.getApiTestContent();
+    }
+
     Object.entries(sourceFiles).forEach(([filename, content]) => {
-      fs.writeFileSync(path.join(this.projectPath, filename), content);
+      fse.writeFileSync(path.join(this.projectPath, filename), content);
     });
   }
 
   getPackageJsonContent() {
+    const dependencies = {
+      express: "^4.18.2",
+      dotenv: "^16.3.1"
+    };
+
+    const devDependencies = {
+      nodemon: "^3.0.2"
+    };
+
+    const scripts = {
+      start: this.config.language === 'typescript' ? "node dist/server.js" : "node server.js",
+      dev: this.config.language === 'typescript' ? "nodemon --exec ts-node server.ts" : "nodemon server.js"
+    };
+
+    // Add TypeScript dependencies
+    if (this.config.language === 'typescript') {
+      devDependencies['typescript'] = "^5.3.2";
+      devDependencies['ts-node'] = "^10.9.1";
+      devDependencies['@types/node'] = "^20.8.0";
+      devDependencies['@types/express'] = "^4.17.20";
+      
+      scripts.build = "tsc";
+      scripts['build:watch'] = "tsc -w";
+    }
+
+    // Add CORS
+    if (this.config.cors) {
+      dependencies.cors = "^2.8.5";
+      if (this.config.language === 'typescript') {
+        devDependencies['@types/cors'] = "^2.8.15";
+      }
+    }
+
+    // Add security middleware
+    dependencies.helmet = "^7.1.0";
+    dependencies.morgan = "^1.10.0";
+    dependencies["express-rate-limit"] = "^7.1.5";
+
+    // Add authentication dependencies
+    if (this.config.authentication === 'jwt') {
+      dependencies.bcryptjs = "^2.4.3";
+      dependencies.jsonwebtoken = "^9.0.2";
+      if (this.config.language === 'typescript') {
+        devDependencies['@types/bcryptjs'] = "^2.4.5";
+        devDependencies['@types/jsonwebtoken'] = "^9.0.5";
+      }
+    } else if (this.config.authentication === 'session') {
+      dependencies['express-session'] = "^1.17.3";
+      dependencies['connect-mongo'] = "^5.1.0";
+      dependencies.bcryptjs = "^2.4.3";
+      if (this.config.language === 'typescript') {
+        devDependencies['@types/express-session'] = "^1.17.10";
+        devDependencies['@types/bcryptjs'] = "^2.4.5";
+      }
+    }
+
+    // Add database dependencies
+    switch (this.config.database) {
+      case 'mongodb':
+        dependencies.mongoose = "^8.0.3";
+        break;
+      case 'postgresql':
+        dependencies.sequelize = "^6.35.0";
+        dependencies.pg = "^8.11.3";
+        if (this.config.language === 'typescript') {
+          devDependencies['@types/pg'] = "^8.10.7";
+        }
+        break;
+      case 'mysql':
+        dependencies.sequelize = "^6.35.0";
+        dependencies.mysql2 = "^3.6.5";
+        break;
+      case 'sqlite':
+        dependencies.sequelize = "^6.35.0";
+        dependencies.sqlite3 = "^5.1.6";
+        break;
+    }
+
+    // Add validation
+    if (this.config.validation) {
+      dependencies["express-validator"] = "^7.0.1";
+    }
+
+    // Add testing dependencies
+    if (this.config.testing) {
+      devDependencies.jest = "^29.7.0";
+      devDependencies.supertest = "^6.3.3";
+      
+      if (this.config.language === 'typescript') {
+        devDependencies['@types/jest'] = "^29.5.8";
+        devDependencies['@types/supertest'] = "^2.0.16";
+        devDependencies['ts-jest'] = "^29.1.1";
+      }
+      
+      scripts.test = "jest";
+      scripts['test:watch'] = "jest --watch";
+      scripts['test:coverage'] = "jest --coverage";
+    }
+
     return JSON.stringify({
       name: this.projectName,
       version: "1.0.0",
       description: "Professional Express.js server",
-      main: "server.js",
-      scripts: {
-        start: "node server.js",
-        dev: "nodemon server.js",
-        test: "jest"
-      },
+      main: this.config.language === 'typescript' ? "dist/server.js" : "server.js",
+      scripts,
       keywords: ["express", "nodejs", "api", "server"],
       author: "",
       license: "MIT",
-      dependencies: {
-        express: "^4.18.2",
-        cors: "^2.8.5",
-        helmet: "^7.1.0",
-        morgan: "^1.10.0",
-        "express-rate-limit": "^7.1.5",
-        bcryptjs: "^2.4.3",
-        jsonwebtoken: "^9.0.2",
-        mongoose: "^8.0.3",
-        dotenv: "^16.3.1",
-        "express-validator": "^7.0.1"
-      },
-      devDependencies: {
-        nodemon: "^3.0.2",
-        jest: "^29.7.0"
-      }
+      dependencies,
+      devDependencies
     }, null, 2);
   }
 
@@ -196,6 +342,8 @@ const rateLimit = require('express-rate-limit');
 
 const routes = require('./routes');
 const { notFound, errorHandler } = require('./middleware/errorHandler');
+const { successResponse } = require('./utils/helpers');
+const { HTTP_STATUS } = require('./utils/constants');
 
 const app = express();
 
@@ -213,11 +361,7 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 app.get('/', (req, res) => {
-  res.status(200).json({
-    success: true,
-    message: 'Server is running!',
-    timestamp: new Date().toISOString()
-  });
+  res.status(HTTP_STATUS.OK).json(successResponse('Server is running!'));
 });
 
 app.use('/api/v1', routes);
@@ -270,35 +414,28 @@ module.exports = config[process.env.NODE_ENV || 'development'];`;
     return `const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const config = require('../config/environment');
+const { errorResponse } = require('../utils/helpers');
+const { HTTP_STATUS, MESSAGES } = require('../utils/constants');
 
 const authenticate = async (req, res, next) => {
   try {
     const token = req.header('Authorization')?.replace('Bearer ', '');
 
     if (!token) {
-      return res.status(401).json({
-        success: false,
-        message: 'Access denied. No token provided.'
-      });
+      return res.status(HTTP_STATUS.UNAUTHORIZED).json(errorResponse('Access denied. No token provided.'));
     }
 
     const decoded = jwt.verify(token, config.jwtSecret);
     const user = await User.findById(decoded.id).select('-password');
 
     if (!user) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid token.'
-      });
+      return res.status(HTTP_STATUS.UNAUTHORIZED).json(errorResponse('Invalid token.'));
     }
 
     req.user = user;
     next();
   } catch (error) {
-    res.status(401).json({
-      success: false,
-      message: 'Invalid token.'
-    });
+    res.status(HTTP_STATUS.UNAUTHORIZED).json(errorResponse('Invalid token.'));
   }
 };
 
@@ -306,36 +443,40 @@ module.exports = { authenticate };`;
   }
 
   getErrorHandlerContent() {
-    return `const notFound = (req, res, next) => {
+    return `const { errorResponse } = require('../utils/helpers');
+const { HTTP_STATUS } = require('../utils/constants');
+
+const notFound = (req, res, next) => {
   const error = new Error(\`Not Found - \${req.originalUrl}\`);
-  res.status(404);
+  res.status(HTTP_STATUS.NOT_FOUND);
   next(error);
 };
 
 const errorHandler = (err, req, res, next) => {
-  let statusCode = res.statusCode === 200 ? 500 : res.statusCode;
+  let statusCode = res.statusCode === 200 ? HTTP_STATUS.INTERNAL_SERVER_ERROR : res.statusCode;
   let message = err.message;
 
   if (err.name === 'CastError' && err.kind === 'ObjectId') {
-    statusCode = 404;
+    statusCode = HTTP_STATUS.NOT_FOUND;
     message = 'Resource not found';
   }
 
   if (err.code === 11000) {
-    statusCode = 400;
+    statusCode = HTTP_STATUS.BAD_REQUEST;
     message = 'Duplicate field value entered';
   }
 
   if (err.name === 'ValidationError') {
-    statusCode = 400;
+    statusCode = HTTP_STATUS.BAD_REQUEST;
     message = Object.values(err.errors).map(val => val.message).join(', ');
   }
 
-  res.status(statusCode).json({
-    success: false,
-    message,
-    stack: process.env.NODE_ENV === 'production' ? null : err.stack
-  });
+  const response = errorResponse(message);
+  if (process.env.NODE_ENV !== 'production') {
+    response.stack = err.stack;
+  }
+
+  res.status(statusCode).json(response);
 };
 
 module.exports = { notFound, errorHandler };`;
@@ -344,21 +485,15 @@ module.exports = { notFound, errorHandler };`;
   getUserControllerContent() {
     return `const { validationResult } = require('express-validator');
 const UserService = require('../services/userService');
+const { successResponse, errorResponse } = require('../utils/helpers');
+const { HTTP_STATUS, MESSAGES } = require('../utils/constants');
 
 const getAllUsers = async (req, res) => {
   try {
     const users = await UserService.getAllUsers();
-    res.status(200).json({
-      success: true,
-      message: 'Users retrieved successfully',
-      data: users
-    });
+    res.status(HTTP_STATUS.OK).json(successResponse('Users retrieved successfully', users));
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Failed to retrieve users',
-      error: error.message
-    });
+    res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(errorResponse('Failed to retrieve users', error.message));
   }
 };
 
@@ -368,23 +503,12 @@ const getUserById = async (req, res) => {
     const user = await UserService.getUserById(id);
 
     if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
+      return res.status(HTTP_STATUS.NOT_FOUND).json(errorResponse(MESSAGES.ERROR.USER_NOT_FOUND));
     }
 
-    res.status(200).json({
-      success: true,
-      message: 'User retrieved successfully',
-      data: user
-    });
+    res.status(HTTP_STATUS.OK).json(successResponse('User retrieved successfully', user));
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Failed to retrieve user',
-      error: error.message
-    });
+    res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(errorResponse('Failed to retrieve user', error.message));
   }
 };
 
@@ -392,25 +516,13 @@ const createUser = async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({
-        success: false,
-        message: 'Validation failed',
-        errors: errors.array()
-      });
+      return res.status(HTTP_STATUS.BAD_REQUEST).json(errorResponse(MESSAGES.ERROR.VALIDATION_FAILED, errors.array()));
     }
 
     const user = await UserService.createUser(req.body);
-    res.status(201).json({
-      success: true,
-      message: 'User created successfully',
-      data: user
-    });
+    res.status(HTTP_STATUS.CREATED).json(successResponse(MESSAGES.SUCCESS.USER_CREATED, user));
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Failed to create user',
-      error: error.message
-    });
+    res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(errorResponse('Failed to create user', error.message));
   }
 };
 
@@ -420,23 +532,12 @@ const updateUser = async (req, res) => {
     const user = await UserService.updateUser(id, req.body);
 
     if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
+      return res.status(HTTP_STATUS.NOT_FOUND).json(errorResponse(MESSAGES.ERROR.USER_NOT_FOUND));
     }
 
-    res.status(200).json({
-      success: true,
-      message: 'User updated successfully',
-      data: user
-    });
+    res.status(HTTP_STATUS.OK).json(successResponse(MESSAGES.SUCCESS.USER_UPDATED, user));
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Failed to update user',
-      error: error.message
-    });
+    res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(errorResponse('Failed to update user', error.message));
   }
 };
 
@@ -446,22 +547,12 @@ const deleteUser = async (req, res) => {
     const deleted = await UserService.deleteUser(id);
 
     if (!deleted) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
+      return res.status(HTTP_STATUS.NOT_FOUND).json(errorResponse(MESSAGES.ERROR.USER_NOT_FOUND));
     }
 
-    res.status(200).json({
-      success: true,
-      message: 'User deleted successfully'
-    });
+    res.status(HTTP_STATUS.OK).json(successResponse(MESSAGES.SUCCESS.USER_DELETED));
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Failed to delete user',
-      error: error.message
-    });
+    res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(errorResponse('Failed to delete user', error.message));
   }
 };
 
@@ -527,15 +618,13 @@ module.exports = mongoose.model('User', userSchema);`;
   getIndexRoutesContent() {
     return `const express = require('express');
 const userRoutes = require('./userRoutes');
+const { successResponse } = require('../utils/helpers');
+const { HTTP_STATUS } = require('../utils/constants');
 
 const router = express.Router();
 
 router.get('/health', (req, res) => {
-  res.status(200).json({
-    success: true,
-    message: 'API is healthy',
-    timestamp: new Date().toISOString()
-  });
+  res.status(HTTP_STATUS.OK).json(successResponse('API is healthy'));
 });
 
 router.use('/users', userRoutes);
@@ -672,6 +761,351 @@ module.exports = {
   USER_ROLES,
   MESSAGES
 };`;
+  }
+
+  // TypeScript configuration
+  getTsConfigContent() {
+    return JSON.stringify({
+      "compilerOptions": {
+        "target": "ES2020",
+        "module": "commonjs",
+        "lib": ["ES2020"],
+        "outDir": "./dist",
+        "rootDir": "./",
+        "strict": true,
+        "esModuleInterop": true,
+        "skipLibCheck": true,
+        "forceConsistentCasingInFileNames": true,
+        "resolveJsonModule": true,
+        "declaration": true,
+        "declarationMap": true,
+        "sourceMap": true,
+        "typeRoots": ["./node_modules/@types", "./src/types"],
+        "baseUrl": ".",
+        "paths": {
+          "@/*": ["src/*"]
+        }
+      },
+      "include": [
+        "src/**/*",
+        "server.ts"
+      ],
+      "exclude": [
+        "node_modules",
+        "dist",
+        "tests"
+      ]
+    }, null, 2);
+  }
+
+  getTypesContent() {
+    return `export interface User {
+  _id?: string;
+  name: string;
+  email: string;
+  password: string;
+  role: 'admin' | 'user';
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+export interface AuthRequest extends Request {
+  user?: User;
+}
+
+export interface ApiResponse<T = any> {
+  success: boolean;
+  message: string;
+  data?: T;
+  error?: string;
+}
+
+export interface PaginationOptions {
+  page: number;
+  limit: number;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
+}`;
+  }
+
+  // Jest configuration
+  getJestConfigContent() {
+    const isTS = this.config.language === 'typescript';
+    
+    if (isTS) {
+      return `module.exports = {
+  preset: 'ts-jest',
+  testEnvironment: 'node',
+  roots: ['<rootDir>/src', '<rootDir>/tests'],
+  testMatch: ['**/__tests__/**/*.ts', '**/?(*.)+(spec|test).ts'],
+  transform: {
+    '^.+\\.ts$': 'ts-jest',
+  },
+  collectCoverageFrom: [
+    'src/**/*.ts',
+    '!src/**/*.d.ts',
+  ],
+  coverageDirectory: 'coverage',
+  coverageReporters: ['text', 'lcov', 'html'],
+};`;
+    }
+    
+    return `module.exports = {
+  testEnvironment: 'node',
+  roots: ['<rootDir>/src', '<rootDir>/tests'],
+  testMatch: ['**/__tests__/**/*.js', '**/?(*.)+(spec|test).js'],
+  collectCoverageFrom: [
+    'src/**/*.js',
+  ],
+  coverageDirectory: 'coverage',
+  coverageReporters: ['text', 'lcov', 'html'],
+};`;
+  }
+
+  // Docker files
+  getDockerfileContent() {
+    const isTS = this.config.language === 'typescript';
+    
+    return `FROM node:18-alpine
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install dependencies
+RUN npm ci --only=production
+
+# Copy source code
+COPY . .
+
+${isTS ? `# Build TypeScript
+RUN npm run build
+
+# Expose port
+EXPOSE 3000
+
+# Start the application
+CMD ["npm", "start"]` : `# Expose port
+EXPOSE 3000
+
+# Start the application
+CMD ["npm", "start"]`}`;
+  }
+
+  getDockerComposeContent() {
+    const services = {
+      app: {
+        build: '.',
+        ports: ['3000:3000'],
+        environment: [
+          'NODE_ENV=production'
+        ],
+        volumes: ['.env:/app/.env'],
+        depends_on: []
+      }
+    };
+
+    if (this.config.database === 'mongodb') {
+      services.mongodb = {
+        image: 'mongo:7',
+        ports: ['27017:27017'],
+        environment: [
+          'MONGO_INITDB_ROOT_USERNAME=admin',
+          'MONGO_INITDB_ROOT_PASSWORD=password'
+        ],
+        volumes: ['mongodb_data:/data/db']
+      };
+      services.app.depends_on.push('mongodb');
+      services.app.environment.push(`DATABASE_URL=mongodb://admin:password@mongodb:27017/${this.projectName}?authSource=admin`);
+    } else if (this.config.database === 'postgresql') {
+      services.postgres = {
+        image: 'postgres:15',
+        ports: ['5432:5432'],
+        environment: [
+          'POSTGRES_DB=' + this.projectName,
+          'POSTGRES_USER=admin',
+          'POSTGRES_PASSWORD=password'
+        ],
+        volumes: ['postgres_data:/var/lib/postgresql/data']
+      };
+      services.app.depends_on.push('postgres');
+      services.app.environment.push('DATABASE_URL=postgres://admin:password@postgres:5432/' + this.projectName);
+    }
+
+    const volumes = {};
+    if (this.config.database === 'mongodb') {
+      volumes.mongodb_data = {};
+    } else if (this.config.database === 'postgresql') {
+      volumes.postgres_data = {};
+    }
+
+    return `version: '3.8'
+
+services:
+${Object.entries(services).map(([name, config]) => 
+  `  ${name}:
+${Object.entries(config).map(([key, value]) => {
+  if (Array.isArray(value)) {
+    return `    ${key}:
+${value.map(v => `      - ${v}`).join('\n')}`;
+  } else if (typeof value === 'object') {
+    return `    ${key}:
+${Object.entries(value).map(([k, v]) => `      ${k}: ${v}`).join('\n')}`;
+  }
+  return `    ${key}: ${value}`;
+}).join('\n')}`
+).join('\n\n')}
+
+${Object.keys(volumes).length > 0 ? `volumes:
+${Object.entries(volumes).map(([name, config]) => `  ${name}:`).join('\n')}` : ''}`;
+  }
+
+  getDockerIgnoreContent() {
+    return `node_modules
+npm-debug.log
+.git
+.gitignore
+README.md
+.env
+.nyc_output
+coverage
+.docker
+tests
+*.test.js
+*.test.ts`;
+  }
+
+  // Test files
+  getUserTestContent() {
+    const isTS = this.config.language === 'typescript';
+    
+    if (isTS) {
+      return `import { UserService } from '../../src/services/userService';
+import { User } from '../../src/types';
+
+describe('UserService', () => {
+  describe('validateUser', () => {
+    it('should validate a valid user', () => {
+      const user: Partial<User> = {
+        name: 'John Doe',
+        email: 'john@example.com',
+        password: 'password123'
+      };
+      
+      const result = UserService.validateUser(user);
+      expect(result.isValid).toBe(true);
+    });
+
+    it('should reject invalid email', () => {
+      const user: Partial<User> = {
+        name: 'John Doe',
+        email: 'invalid-email',
+        password: 'password123'
+      };
+      
+      const result = UserService.validateUser(user);
+      expect(result.isValid).toBe(false);
+    });
+  });
+});`;
+    }
+    
+    return `const UserService = require('../../src/services/userService');
+
+describe('UserService', () => {
+  describe('validateUser', () => {
+    it('should validate a valid user', () => {
+      const user = {
+        name: 'John Doe',
+        email: 'john@example.com',
+        password: 'password123'
+      };
+      
+      const result = UserService.validateUser(user);
+      expect(result.isValid).toBe(true);
+    });
+
+    it('should reject invalid email', () => {
+      const user = {
+        name: 'John Doe',
+        email: 'invalid-email',
+        password: 'password123'
+      };
+      
+      const result = UserService.validateUser(user);
+      expect(result.isValid).toBe(false);
+    });
+  });
+});`;
+  }
+
+  getApiTestContent() {
+    const isTS = this.config.language === 'typescript';
+    
+    if (isTS) {
+      return `import request from 'supertest';
+import app from '../../src/app';
+
+describe('API Routes', () => {
+  describe('GET /', () => {
+    it('should return health check', async () => {
+      const response = await request(app)
+        .get('/')
+        .expect(200);
+      
+      expect(response.body.message).toBe('Server is running!');
+    });
+  });
+
+  describe('GET /api/v1/users', () => {
+    it('should return users list', async () => {
+      const response = await request(app)
+        .get('/api/v1/users')
+        .expect(200);
+      
+      expect(response.body.success).toBe(true);
+    });
+  });
+});`;
+    }
+    
+    return `const request = require('supertest');
+const app = require('../../src/app');
+
+describe('API Routes', () => {
+  describe('GET /', () => {
+    it('should return health check', async () => {
+      const response = await request(app)
+        .get('/')
+        .expect(200);
+      
+      expect(response.body.message).toBe('Server is running!');
+    });
+  });
+
+  describe('GET /api/v1/users', () => {
+    it('should return users list', async () => {
+      const response = await request(app)
+        .get('/api/v1/users')
+        .expect(200);
+      
+      expect(response.body.success).toBe(true);
+    });
+  });
+});`;
+  }
+
+  createDockerFiles() {
+    const dockerFiles = {
+      'Dockerfile': this.getDockerfileContent(),
+      'docker-compose.yml': this.getDockerComposeContent(),
+      '.dockerignore': this.getDockerIgnoreContent()
+    };
+
+    Object.entries(dockerFiles).forEach(([filename, content]) => {
+      fse.writeFileSync(path.join(this.projectPath, filename), content);
+    });
   }
 }
 

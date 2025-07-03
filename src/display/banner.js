@@ -24,17 +24,33 @@ function showBanner() {
 /**
  * Display success message
  */
-function showSuccess(projectName) {
+function showSuccess(projectName, config = {}) {
   console.log();
   console.log(chalk.green('━'.repeat(80)));
   console.log(chalk.green.bold('  ✅ SUCCESS! Your Express server has been generated'));
   console.log(chalk.gray('━'.repeat(80)));
   console.log(chalk.cyan(`  📂 Project: ${projectName}`));
   console.log(chalk.cyan(`  📍 Location: ./${projectName}`));
+  
+  if (config && Object.keys(config).length > 0) {
+    console.log();
+    console.log(chalk.yellow.bold('  📋 Configuration Applied:'));
+    console.log(chalk.white(`    Language: ${config.language === 'typescript' ? 'TypeScript' : 'JavaScript'}`));
+    console.log(chalk.white(`    Authentication: ${config.authentication === 'none' ? 'None' : config.authentication.toUpperCase()}`));
+    console.log(chalk.white(`    Database: ${config.database === 'none' ? 'None' : config.database.toUpperCase()}`));
+    console.log(chalk.white(`    CORS: ${config.cors ? 'Enabled' : 'Disabled'}`));
+    console.log(chalk.white(`    Validation: ${config.validation ? 'Enabled' : 'Disabled'}`));
+    console.log(chalk.white(`    Testing: ${config.testing ? 'Enabled' : 'Disabled'}`));
+    console.log(chalk.white(`    Docker: ${config.docker ? 'Enabled' : 'Disabled'}`));
+  }
+  
   console.log();
   console.log(chalk.yellow.bold('  🏃‍♂️ Next Steps:'));
   console.log(chalk.white(`    cd ${projectName}`));
   console.log(chalk.white('    npm install'));
+  if (config.language === 'typescript') {
+    console.log(chalk.white('    npm run build'));
+  }
   console.log(chalk.white('    npm run dev'));
   console.log();
   console.log(chalk.gray('━'.repeat(80)));
