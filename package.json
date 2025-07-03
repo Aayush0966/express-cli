@@ -1,6 +1,6 @@
 {
   "name": "genpresso",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A professional CLI tool for generating Express.js servers with best practices",
   "main": "bin/cli.js",
   "type": "commonjs",
@@ -12,7 +12,13 @@
     "cli": "node bin/cli.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": ["cli", "express", "generator", "nodejs", "server"],
+  "keywords": [
+    "cli",
+    "express",
+    "generator",
+    "nodejs",
+    "server"
+  ],
   "author": "",
   "license": "MIT",
   "engines": {
@@ -27,4 +33,4 @@
     "fs-extra": "^11.1.1",
     "validate-npm-package-name": "^5.0.0"
   }
-} 
+}
