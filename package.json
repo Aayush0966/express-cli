@@ -5,7 +5,7 @@
   "main": "bin/cli.js",
   "type": "commonjs",
   "bin": {
-    "genpresso": "./bin/cli.js"
+    "genpresso": "bin/cli.js"
   },
   "scripts": {
     "start": "node bin/cli.js",
